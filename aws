@@ -24,7 +24,7 @@ $sqs_version = "2009-02-01";
 $elb_version = "2010-07-01";
 $sdb_version = "2009-04-15";
 $iam_version = "2010-05-08";
-
+$as_version  = "2011-01-01";
 
 #
 # Need to implement:
@@ -338,6 +338,39 @@ $iam_version = "2010-05-08";
 											  ["", LoadBalancerName],
 											  ["policy-name", "PolicyNames.memberN"],
 											  ]],
+
+	############
+	###  AS  ###
+	############
+
+	["as", "describe-as-groups das", DescribeAutoScalingGroups, [
+							 ["", "AutoScalingGroupNames.memberN"],
+							 ]],
+	["as", "create-launch-config create-launch-configuration clc", CreateLaunchConfiguration, [
+							 ["block-device-mapping b", undef, undef, \&parse_block_device_mappings],
+							 ["device-name" => "BlockDeviceMappings.memberN.DeviceName"],
+							 ["no-device" => "BlockDeviceMappings.memberN.Ebs.NoDevice"],
+							 ["virtual-name" => "BlockDeviceMappings.memberN.VirtualName"],
+							 ["snapshot s" => "BlockDeviceMappings.memberN.Ebs.SnapshotId"],
+							 ["volume-size" => "BlockDeviceMappings.memberN.Ebs.VolumeSize"],
+							 ["delete-on-termination" => "BlockDeviceMappings.memberN.Ebs.DeleteOnTermination"],
+							 ["ami I", ImageId],
+							 ["monitor m" => "InstanceMonitoring"],
+							 ["instance-type type t i", InstanceType],
+							 ["kernel", KernelId],
+							 ["key k", KeyName],
+							 ["", LaunchConfigurationName],
+							 ["ramdisk", RamdiskId],
+							 ["groups g", "SecurityGroups.memberN", "default"],
+							 ["user-data d", UserData, undef, sub {encode_base64($_[0], "")}],
+							 ["user-data-file f", UserData, undef, sub {encode_base64(load_file($_[0]))}],
+							 ]],
+	["as", "delete-launch-config delete-launch-configuration dellc", DeleteLaunchConfiguration, [
+							 ["", "LaunchConfigurationName"],
+							 ]],
+	["as", "describe-launch-config describe-launch-configurations dlc", DescribeLaunchConfigurations, [
+							 ["", "LaunchConfigurationNames.memberN"],
+							 ]],
 
 	#############
 	###  IAM  ###
@@ -789,7 +822,7 @@ END {close STDOUT}
 $s3host ||= $ENV{S3_URL} || "s3.amazonaws.com";
 
 
-print STDERR "aws version: v$program_version  (ec2: $ec2_version, sqs: $sqs_version, elb: $elb_version, sdb: $sdb_version, iam: $iam_version)\n" if $v;
+print STDERR "aws version: v$program_version  (ec2: $ec2_version, sqs: $sqs_version, elb: $elb_version, sdb: $sdb_version, iam: $iam_version, as: $as_version)\n" if $v;
 
 $insecsign = "--insecure" if $insecure || $insecure_signing;
 $insecureaws = "--insecure" if $insecureaws || $insecure_aws;
@@ -1035,7 +1068,7 @@ if (!$cmd_data)
 	    $output .= "\t\t$one\n";
 	}
     }
-    $output .= "aws version: v$program_version  (ec2 $ec2_version, sqs $sqs_version, elb $elb_version, sdb $sdb_version)\n";
+    $output .= "aws version: v$program_version  (ec2 $ec2_version, sqs $sqs_version, elb $elb_version, sdb $sdb_version, as $as_version)\n";
     die $output;
 }
 
@@ -1080,7 +1113,7 @@ if (!$cmd_data)
 
     my($result);
 
-    if ($service eq "ec2" || $service eq "sqs" || $service eq "elb" || $service eq "sdb" || $service eq "iam")
+    if ($service eq "ec2" || $service eq "sqs" || $service eq "elb" || $service eq "sdb" || $service eq "iam" || $service eq "as")
     {
 	#print STDERR "(@{[join(', ', @argv)]})\n" if $v;
 
@@ -2135,6 +2168,7 @@ sub ec2
     $version .= $ec2_version if $service eq "ec2";
     $version .= $sqs_version if $service eq "sqs";
     $version .= $elb_version if $service eq "elb";
+    $version .= $as_version if $service eq "as";
     $version .= $sdb_version if $service eq "sdb";
     $version .= $iam_version if $service eq "iam";
 
@@ -2159,6 +2193,12 @@ sub ec2
     {
 	$endpoint = "elasticloadbalancing.amazonaws.com";
 	$endpoint = "elasticloadbalancing.$region.amazonaws.com" if $region;
+    }
+
+    if ($service eq "as")
+    {
+	$endpoint = "autoscaling.amazonaws.com";
+	$endpoint = "autoscaling.$region.amazonaws.com" if $region;
     }
 
     if ($service eq "sdb")
@@ -2354,6 +2394,31 @@ sub parse_block_device_mapping
 	push @result, "BlockDeviceMapping.N.Ebs.SnapshotId" => $vol if $vol;
 	push @result, "BlockDeviceMapping.N.Ebs.VolumeSize" => $size if $size;
 	push @result, "BlockDeviceMapping.N.Ebs.DeleteOnTermination" => $delete if $delete;
+    }
+    [@result];
+}
+
+# the form used for autoscaling
+sub parse_block_device_mappings
+{
+    my($dev, $vol, $size, $delete) = $_[0] =~ /^(.*?)(?:=(.*?)(?::(.*?)(?::(.*?))?)?)?$/;
+    #print "dev=$dev\nvol=$vol\nsize=$size\ndelete=$delete\n";
+    my(@result);
+
+    push @result, "BlockDeviceMappings.member.N.DeviceName" => $dev;
+    if ($vol eq "none")
+    {
+	push @result, "BlockDeviceMappings.member.N.NoDevice" => "true";
+    }
+    elsif ($vol =~ /^ephemeral/)
+    {
+	push @result, "BlockDeviceMappings.member.N.VirtualName" => $vol;
+    }
+    else
+    {
+	push @result, "BlockDeviceMappings.member.N.Ebs.SnapshotId" => $vol if $vol;
+	push @result, "BlockDeviceMappings.member.N.Ebs.VolumeSize" => $size if $size;
+	push @result, "BlockDeviceMappings.member.N.Ebs.DeleteOnTermination" => $delete if $delete;
     }
     [@result];
 }
