@@ -343,8 +343,47 @@ $as_version  = "2011-01-01";
 	###  AS  ###
 	############
 
+	["as", "delete-as-groups delas", DeleteAutoScalingGroup, [
+							 ["", AutoScalingGroupName],
+							 ["force-delete", ForceDelete],
+							 ]],
 	["as", "describe-as-groups das", DescribeAutoScalingGroups, [
 							 ["", "AutoScalingGroupNames.memberN"],
+							 ["max-records", MaxRecords],
+							 ["next-token", NextToken],
+							 ]],
+	["as", "describe-scaling-activities dsca", DescribeScalingActivities, [
+							 ["", AutoScalingGroupName],
+							 ["activity-id", "ActivityIds.memberN"],
+							 ["max-records", MaxRecords],
+							 ["next-token", NextToken],
+							 ]],
+	["as", "create-as-group cas", CreateAutoScalingGroup, [
+							 ["", "AutoScalingGroupName"],
+							 ["availability-zone z", "AvailabilityZones.memberN"],
+							 ["default-cooldown", DefaultCooldown],
+							 ["desired-capacity C", DesiredCapacity],
+							 ["health-check-grace-period", HealthCheckGracePeriod],
+							 ["health-check-type", HealthCheckType],
+							 ["launch-config-name c", LaunchConfigurationName],
+							 ["load-balancer-name l", "LoadBalancerNames.memberN"],
+							 ["max-size M", MaxSize],
+							 ["min-size m", MinSize],
+							 ["placement-group", PlacementGroup],
+							 ["vpc-zone-id", VPCZoneIdentifier],
+							 ]],
+	["as", "update-as-group uas", UpdateAutoScalingGroup, [
+							 ["", "AutoScalingGroupName"],
+							 ["availability-zone z", "AvailabilityZones.memberN"],
+							 ["default-cooldown", DefaultCooldown],
+							 ["desired-capacity C", DesiredCapacity],
+							 ["health-check-grace-period", HealthCheckGracePeriod],
+							 ["health-check-type", HealthCheckType],
+							 ["launch-config-name c", LaunchConfigurationName],
+							 ["max-size M", MaxSize],
+							 ["min-size m", MinSize],
+							 ["placement-group", PlacementGroup],
+							 ["vpc-zone-id", VPCZoneIdentifier],
 							 ]],
 	["as", "create-launch-config create-launch-configuration clc", CreateLaunchConfiguration, [
 							 ["block-device-mapping b", undef, undef, \&parse_block_device_mappings],
@@ -355,7 +394,7 @@ $as_version  = "2011-01-01";
 							 ["volume-size" => "BlockDeviceMappings.memberN.Ebs.VolumeSize"],
 							 ["delete-on-termination" => "BlockDeviceMappings.memberN.Ebs.DeleteOnTermination"],
 							 ["ami I", ImageId],
-							 ["monitor m" => "InstanceMonitoring"],
+							 ["monitor m" => InstanceMonitoring],
 							 ["instance-type type t i", InstanceType],
 							 ["kernel", KernelId],
 							 ["key k", KeyName],
@@ -370,6 +409,11 @@ $as_version  = "2011-01-01";
 							 ]],
 	["as", "describe-launch-config describe-launch-configurations dlc", DescribeLaunchConfigurations, [
 							 ["", "LaunchConfigurationNames.memberN"],
+							 ]],
+	["as", "set-desired-capacity sdc", SetDesiredCapacity, [
+							 ["", AutoScalingGroupName],
+							 ["desired-capacity C", DesiredCapacity],
+							 ["honor-cooldown", HonorCooldown],
 							 ]],
 
 	#############
