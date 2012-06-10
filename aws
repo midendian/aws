@@ -192,7 +192,7 @@ $as_version  = "2011-01-01";
 									       sub {encode_base64($_[0], "")}],
 									      ["user-data-file f" => "LaunchSpecification.UserData", undef,
 									       sub {encode_base64(load_file($_[0]))}],
-									      ["group g" => "LaunchSpecification.SecurityGroupN", "default"],
+									      ["group g" => "LaunchSpecification.SecurityGroupN"],
 									      ["a", "LaunchSpecification.AddressingType"],
 									      ["key k" => "LaunchSpecification.KeyName"],
 									      ["instance-type t" => "LaunchSpecification.InstanceType", "t1.micro"],
@@ -230,7 +230,7 @@ $as_version  = "2011-01-01";
 								      my($min, $max) = split(/-/, $_[0]."-".$_[0]);
 								      [MinCount => $min, MaxCount => $max];
 								  }],
-								 ["group g", SecurityGroupN, "default"],
+								 ["group g", SecurityGroupN],
 								 ["key k", KeyName],
 								 ["user-data d", UserData, undef, sub {encode_base64($_[0], "")}],
 								 ["user-data-file f", UserData, undef, sub {encode_base64(load_file($_[0]))}],
@@ -300,7 +300,9 @@ $as_version  = "2011-01-01";
 						      ]],
 	["elb", "create-lb-listeners clbl", CreateLoadBalancerListeners, [
 								     ["", LoadBalancerName],
-								     ["listener", "Listeners.memberN"],
+								     ["protocol", "Listeners.member.1.Protocol"],
+								     ["loadbalancerport", "Listeners.member.1.LoadBalancerPort"],
+								     ["instanceport", "Listeners.member.1.InstancePort"],
 								     ]],
 	["elb", "delete-lb dellb", DeleteLoadBalancer, [
 						  ["", LoadBalancerName],
@@ -350,7 +352,7 @@ $as_version  = "2011-01-01";
 	###  AS  ###
 	############
 
-	["as", "delete-as-groups delas", DeleteAutoScalingGroup, [
+	["as", "delete-as-group delas", DeleteAutoScalingGroup, [
 							 ["", AutoScalingGroupName],
 							 ["force-delete", ForceDelete],
 							 ]],
@@ -387,6 +389,7 @@ $as_version  = "2011-01-01";
 							 ["health-check-grace-period", HealthCheckGracePeriod],
 							 ["health-check-type", HealthCheckType],
 							 ["launch-config-name c", LaunchConfigurationName],
+							 ["load-balancer-name l", "LoadBalancerNames.memberN"],
 							 ["max-size M", MaxSize],
 							 ["min-size m", MinSize],
 							 ["placement-group", PlacementGroup],
@@ -407,9 +410,10 @@ $as_version  = "2011-01-01";
 							 ["key k", KeyName],
 							 ["", LaunchConfigurationName],
 							 ["ramdisk", RamdiskId],
-							 ["groups g", "SecurityGroups.memberN", "default"],
+							 ["groups g", "SecurityGroups.memberN"],
 							 ["user-data d", UserData, undef, sub {encode_base64($_[0], "")}],
 							 ["user-data-file f", UserData, undef, sub {encode_base64(load_file($_[0]))}],
+							 ["price p" => SpotPrice],
 							 ]],
 	["as", "delete-launch-config delete-launch-configuration dellc", DeleteLaunchConfiguration, [
 							 ["", "LaunchConfigurationName"],
@@ -596,7 +600,7 @@ $as_version  = "2011-01-01";
 							   [" s" => ServerCertificateName],
 							   ]],
 	["iam", "servercertgetattributes", GetServerCertificate, [
-								  [" s" => ServerCertificate],
+								  [" s" => ServerCertificateName],
 								  ]],
 	["iam", "servercertlistbypath", ListServerCertificates, [
 								 [" p" => PathPrefix],
@@ -2349,7 +2353,7 @@ sub ec2
     if ($service eq "iam")
     {
 	$endpoint = "iam.amazonaws.com";
-	# $endpoint = "iam.$region.amazonaws.com" if $region;
+	$endpoint = "iam.$region.amazonaws.com" if $region;
     }
 
     $queue ||= "/";
@@ -2536,6 +2540,7 @@ sub parse_block_device_mapping
     [@result];
 }
 
+# XXX this is the format for CreateLaunchConfiguration but only if SpotPrice isn't specified (use LaunchSpecification format then)
 sub parse_block_device_mappings
 {
     my($dev, $vol, $size, $delete) = $_[0] =~ /^(.*?)(?:=(.*?)(?::(.*?)(?::(.*?))?)?)?$/;
