@@ -77,7 +77,7 @@ $as_version  = "2011-01-01";
                                                    ]],
 	["ec2", "cancel-spot-instance-requests cancel csir", CancelSpotInstanceRequests, [
 									   ["", SpotInstanceRequestIdN],
-									   ]],								  
+									   ]],
 	["ec2", "confirm-product-instance", ConfirmProductInstance, [
 								     ["", ProductCode],
 								     ["i", InstanceId],
@@ -94,7 +94,7 @@ $as_version  = "2011-01-01";
 									       ["end", EndTime],
 									       ["instance-type", InstanceType, "m1.small"],
 									       ["description", ProductDescription, "Linux/UNIX"],
-									       ]],									   
+									       ]],
 	["ec2", "create-volume cvol", CreateVolume, [
 						     ["size", Size],
 						     ["zone", AvailabilityZone],
@@ -200,7 +200,13 @@ $as_version  = "2011-01-01";
 									      [kernel => "LaunchSpecification.KernelId"],
 									      [ramdisk => "LaunchSpecification.RamdiskId"],
 									      [subnet => "LaunchSpecification.SubnetId"],
-									      ["block-device-mapping b" => "LaunchSpecification.blockDeviceMapping.N.DeviceName"],
+									      ["block-device-mapping b", undef, undef, \&parse_block_device_mapping_with_launch_specification],
+									      ["device-name" => "LaunchSpecification.BlockDeviceMapping.N.DeviceName"],
+									      ["no-device" => "LaunchSpecification.BlockDeviceMapping.N.Ebs.NoDevice"],
+									      ["virtual-name" => "LaunchSpecification.BlockDeviceMapping.N.VirtualName"],
+									      [snapshot => "LaunchSpecification.BlockDeviceMapping.N.Ebs.SnapshotId"],
+									      ["volume-size" => "LaunchSpecification.BlockDeviceMapping.N.Ebs.VolumeSize"],
+									      ["delete-on-termination" => "LaunchSpecification.BlockDeviceMapping.N.Ebs.DeleteOnTermination"],
 									      [monitor => "LaunchSpecification.Monitoring.Enabled"],
 								 ]],
 	["ec2", "revoke", RevokeSecurityGroupIngress, [
@@ -301,6 +307,7 @@ $as_version  = "2011-01-01";
 						  ]],
 	["elb", "delete-lb-listeners dlbl", DeleteLoadBalancerListeners, [
 								     ["", LoadBalancerName],
+								     ["loadbalancerport", "LoadBalancerPorts.member.1"],
 								     ]],
 	["elb", "delete-lb-policy dlbp", DeleteLoadBalancerPolicy, [
 								    ["", LoadBalancerName],
@@ -621,6 +628,7 @@ $as_version  = "2011-01-01";
 	["s3", "put", PUT],
 	["s3", "delete rmdir rm", DELETE],
 	["s3", "copy cp", COPY],
+	["s3", "dmo", DMO],
 
 	["sqs", "add-permission addperm", AddPermission, [
 							  ["" => QueueUri],
@@ -745,10 +753,10 @@ unshift @ARGV, $1 if $0 =~ /^(?:.*[\\\/])?(?:(?:ec2|s3|sqs|sdb)-?)?(.+?)(?:\..+)
     @needs_arg{qw(region)} = undef;
 
     my(%meta);
-    @meta{qw(1 cmd0 curl_options cut d delimiter dump_xml exec expire_time fail h help http
+    @meta{qw(1 cmd0 curl_options cut d delimiter dns_alias dump_xml exec expire_time fail h help http
 	     insecure insecure_signing insecure_aws insecureaws install l limit_rate link
-	     max_time marker md5 no_vhost prefix private progress public queue r region request requester retry
-	     s3host sanity_check secrets_file set_acl sign silent simple t v verbose vv vvv wait xml)} = undef;
+	     max_time marker md5 no_vhost prefix private progress public queue r region request requester retry ruby quiet
+	     s3host sanity_check secrets_file set_acl sign silent simple t v verbose vv vvv wait xml yaml)} = undef;
 
     my @awsrc = "";
     for (split(/(?:\#.*?(?=\n)|'(.*?)'|"((?:\\[\\\"]|.)*?)"|((?:\\.|\$.|[^\s\'\"\#])+))/s, load_file_silent("$home/.awsrc")))
@@ -876,8 +884,10 @@ $scheme = $http? "http": "https";
 $silent ||= !-t;
 $retry ||= 3;
 
-$secrets_file ||= "$home/.s3cfg" if !-e "$home/.awssecret" && -e "$home/.s3cfg";
-$secrets_file ||= "$home/.awssecret";
+
+$secrets_file ||= "$home/.awssecret" if -e "$home/.awssecret";
+$secrets_file ||= "$home/.s3cfg" if -e "$home/.s3cfg";
+$secrets_file ||= "$home/.passwd-s3fs" if -e "$home/.passwd-s3fs";
 
 # unfortunately, you can't have a delimiter of "1" this way
 if ($d || $delimiter == 1)
@@ -897,12 +907,12 @@ if (!-e "$home/.awsrc" || $sanity_check)
 {
     if (!$silent)
     {
-	if ($ENV{AWS_SECRET_ACCESS_KEY} && $ENV{AWS_ACCESS_KEY_ID})
+	if (($ENV{AWS_SECRET_ACCESS_KEY} && $ENV{AWS_ACCESS_KEY_ID}) || ($ENV{EC2_SECRET_KEY} && $ENV{EC2_ACCESS_KEY}))
 	{
 	}
 	elsif (!-e $secrets_file)
 	{
-	    warn "sanity-check: \"$secrets_file\": file is missing.  (Format: AccessKeyID\\nSeecretAccessKey\\n)\n";
+	    warn "sanity-check: \"$secrets_file\": file is missing.  (Format: AccessKeyID\\nSecretAccessKey\\n)\n";
 	}
 	elsif (!-r $secrets_file)
 	{
@@ -911,7 +921,7 @@ if (!-e "$home/.awsrc" || $sanity_check)
 	elsif ($isUnix)
 	{
 	    my $stat = (stat $secrets_file)[2] & 0777;
-	    
+
 	    if (($stat & 0477) != 0400)
 	    {
 		my @perm = (qw(x r w)) x 4;
@@ -1013,7 +1023,7 @@ if ($sign)
 if ($install)
 {
     die "Usage: .../aws --install\n" if $install && @argv;
-    
+
     if (-w "/usr/bin")
     {
 	chomp(my $dir = qx[pwd]);
@@ -1211,6 +1221,7 @@ if (!$cmd_data)
 	    }
 	}
 
+	# add the defaults
 	for (@$param)
 	{
 	    my($a, $key, $default, $cref) = @$_;
@@ -1245,11 +1256,64 @@ if (!$cmd_data)
     }
     elsif ($service eq "s3")
     {
+	my(@file, @head);
+
+	for (@argv)
+	{
+	    if (/^(?:x-amz-|Cache-|Content-|Expires:|If-|Range:)/i)
+	    {
+		push @head, $_;
+	    }
+	    else
+	    {
+		push @file, $_;
+	    }
+	}
+
+	my $bucket = shift @file;
+
+	if ($action eq DMO)
+	{
+	    my($temp_fh, $temp_fn) = tempfile(UNLINK => 1);
+	    print $temp_fh "<Delete>\n";
+	    print $temp_fh "\t<Quiet>true</Quiet>\n" if $quiet;
+
+	    die "missing object: specifify one or more objects to delete\n" if @file == 0;
+
+	    for (@file)
+	    {
+		if (/^-$/)
+		{
+		    for (split(" ", load_file($_)))
+		    {
+			print $temp_fh "\t<Object><Key>$_</Key></Object>\n";
+		    }
+		    next;
+		}
+		print $temp_fh "\t<Object><Key>$_</Key></Object>\n";
+	    }
+
+	    print $temp_fh "</Delete>\n";
+	    $temp_fh->flush;
+
+	    system "cat $temp_fn" if $v;
+
+	    $action = PUT;
+	    $md5 = 1;
+	    $bucket .= "?delete";
+	    @file = $temp_fn;
+
+	    print "bucket = $bucket\nfile = $file\naction = $action\n" if $v;
+	}
+
+	my $file = shift @file;
+	warn "ignored: @file\n" if @file;
+
 	my($last_marker, $marker);
 
 	for (;;)
 	{
-	    my $r = s3($action, $marker, (grep(!/^(?:x-amz-|Cache-|Content-|Expires:|If-|Range:)/i, @argv))[0, 1], grep(/^(?:x-amz-|Cache-|Content-|Expires:|If-|Range:)/i, @argv));
+	    my $r = s3($action, $marker, $bucket, $file, @head);
 	    if ($r !~ /^<\?xml/)
 	    {
 		print $r;
@@ -1270,6 +1334,10 @@ if (!$cmd_data)
     if ($xml)
     {
 	print xmlpp($result);
+    }
+    elsif ($yaml)
+    {
+        print xml2yaml($result);
     }
     elsif ($result =~ /<ListBucketResult|<ListAllMyBucketsResult/ && ($l || $d1 || $exec || $simple))
     {
@@ -1381,25 +1449,21 @@ if (!$cmd_data)
 	for (;;)
 	{
 	    my(@instanceId, @instanceState, @dnsName, @groupId);
+	    my($groupId) = $result =~ /<groupId>(.*?)<\/groupId>/;
 
-	    while ($result =~ /(<item(?:<item(?:<item.*?<\/item>|.)*?<\/item>|.)*?<\/item>)/sg)
+	    while ($result =~ /(<instancesSet.*?<\/instancesSet>)/sg)
 	    {
 		my($result) = ($1);
-		my($groupId) = $result =~ /<groupId>(.*?)<\/groupId>/;
-		while ($result =~ /(<instancesSet.*?<\/instancesSet>)/sg)
+		while ($result =~ /(<item(?:<item.*?<\/item>|.)*?<\/item>)/sg)
 		{
 		    my($result) = ($1);
-		    while ($result =~ /(<item(?:<item.*?<\/item>|.)*?<\/item>)/sg)
-		    {
-			my($result) = ($1);
-			my($instanceId) = $result =~ /<instanceId>(.*?)<\/instanceId>/s;
-			my($instanceState) = map {/<name>(.*?)<\/name>/s} $result =~ /<instanceState>(.*?)<\/instanceState>/s;
-			my($dnsName) = $result =~ /<dnsName>(.*?)<\/dnsName>/s;
-			push @instanceId, $instanceId;
-			push @instanceState, $instanceState;
-			push @dnsName, $dnsName;
-			push @groupId, $groupId;
-		    }
+		    my($instanceId) = $result =~ /<instanceId>(.*?)<\/instanceId>/s;
+		    my($instanceState) = map {/<name>(.*?)<\/name>/s} $result =~ /<instanceState>(.*?)<\/instanceState>/s;
+		    my($dnsName) = $result =~ /<dnsName>(.*?)<\/dnsName>/s;
+		    push @instanceId, $instanceId;
+		    push @instanceState, $instanceState;
+		    push @dnsName, $dnsName;
+		    push @groupId, $groupId;
 		}
 	    }
 
@@ -1443,7 +1507,7 @@ if (!$cmd_data)
 	    }
 	}
     }
-####
+
     elsif ($result =~ /<ListDomainsResponse/)
     {
 	my $ary = xml2ary(ListDomainsResult, $result);
@@ -1736,11 +1800,6 @@ sub xml2tab
 		{
 		    for (my $i = 0; $i < @head; $i++)
 		    {
-			if ($head[$i] =~ /^(?:privateDnsName|dnsName)$/)
-			{
-			    chomp(my $me = qx[me $_->[$i]]);
-			    $_->[$i] = $me if $me;
-			}
 			my $length = length($_->[$i]);
 			$width[$i] = $length if $width[$i] < $length;
 		    }
@@ -1900,6 +1959,29 @@ sub xmlpp
     $result;
 }
 
+# Convert xml string to YAML format
+# Cf.: https://github.com/icy/aws/blob/master/aws2yaml
+sub xml2yaml {
+  my($result) = xmlpp(@_);
+  my($rubySymbol) = "";
+
+  $rubySymbol = ":" if $ruby;
+
+  $result =~ s#\n# #g;
+  $result =~ s#> #>\n#g;                            # remove all '\n's
+  $result =~ s#</.*>##g;                            # remove closing tags
+  $result =~ s#<([a-z0-9:]*).*>#$rubySymbol\1: #gi; # opening tags -> symbols
+  $result =~ s#($rubySymbol[^:]+): (.+)#\1: > \2#g; # opening tags -> symbols
+  $result =~ s#:?(.*)/:#\1:#g;                      # empty values
+  $result =~ s#:?(item|bucket|member): #- #gi;      # array items
+  $result =~ s#\t#  #g;                             # tabs -> spaces
+  $result =~ s#^[ :]*\n##mg;                        # remove all empty lines
+  $result =~ s#[ ]+$##gm;                           # remove all trailing spaces
+  $result =~ s#^[^ \n]+:\n#---\n#;                  # new document indicator
+  $result =~ s#^  ##mg;                             # shift left
+
+  $result;
+}
 
 sub s3
 {
@@ -1909,6 +1991,29 @@ sub s3
     $name = "$ENV{S3_DIR}/$name" if $ENV{S3_DIR};
     $name =~ s/^([^\?\/]+)(\?|$ )/$1\/$2/xs;
     $name .= $file if $verb eq PUT && $name =~ /\/$/;
+
+    # read from stdin when
+    #	aws put target
+    #	aws put target -
+    # but not
+    #	aws put target?acl
+    # what about
+    #	aws put target?location
+
+    my($temp_fh);
+
+    if ($verb eq PUT && ($file eq "-" || $file eq "" && $name !~ /\?acl$/))
+    {
+	# and not when a terminal
+	die "$0: will not to read from terminal (use \"-\" for filename to force)\n" if -t && $file ne "-";
+
+	($temp_fh, $file) = tempfile(UNLINK => 1);
+	while (STDIN->read(my $buf, 16_384))
+	{
+	    print $temp_fh $buf;
+	}
+	$temp_fh->flush;
+    }
 
     # add a Content-Type header using mime.types
     if ($verb eq PUT)
@@ -1949,13 +2054,20 @@ sub s3
 	    # Too memory intensive:
 	    #my $md5 = encode_base64(md5(load_file($file)), "");
 
-	    # Uses Digest::MD5::File that isn't in base perl:
-	    # (Use this choice for Windows, after installing the package)
-	    #use Digest::MD5::File qw(file_md5);
-	    #my $md5 = encode_base64(file_md5($file), "");
+	    my($md5);
 
-	    # Just right:
-	    my $md5 = encode_base64(pack("H*", (split(" ", qx[md5sum @{[cq($file)]}]))[0]), "");
+	    if (!$isUnix)
+	    {
+		# Uses Digest::MD5::File that isn't in base perl:
+		# (Use this choice for Windows, after installing the package)
+		require Digest::MD5::File;
+		$md5 = encode_base64(Digest::MD5::File::file_md5($file), "");
+	    }
+	    else
+	    {
+		# Just right:
+		$md5 = encode_base64(pack("H*", (split(" ", qx[md5sum @{[cq($file)]}]))[0]), "");
+	    }
 
 	    push @header, "Content-MD5: $md5";
 	    print STDERR "setting $header[$#header]\n" if $v;
@@ -1968,29 +2080,6 @@ sub s3
 
     $requester = "requester" if $requester == 1;
     push @header, "x-amz-request-payer: $requester" if $requester;
-
-    # read from stdin when
-    #	aws put target
-    #	aws put target -
-    # but not
-    #	aws put target?acl
-    # what about
-    #	aws put target?location
-
-    my($temp_fh);
-
-    if ($verb eq PUT && ($file eq "-" || $file eq "" && $name !~ /\?acl$/))
-    {
-	# and not when a terminal
-	die "$0: will not to read from terminal (use \"-\" for filename to force)\n" if -t && $file ne "-";
-
-	($temp_fh, $file) = tempfile(UNLINK => 1);
-	while (STDIN->read(my $buf, 16_384))
-	{
-	    print $temp_fh $buf;
-	}
-	$temp_fh->flush;
-    }
 
     # added a case for "copy", so that the source moves to a header
     if ($verb eq COPY)
@@ -2024,8 +2113,13 @@ sub s3
 	$verb = GET;
     }
 
-    my($ub, $uo, $uq) = $name =~ /^(.+?)(?:\/(.*?))?(\?(?:acl|location|logging|bittorrent|requestPayment|versioning|versions))?$/s;
+    my($ub, $uo, $uq) = $name =~ /^(.+?)(?:\/(.*?))?(\?(?:acl|delete|location|logging|bittorrent|lifecycle|requestPayment|versioning|versions))?$/s;
     my $uname = encode_url($ub) . "/" . encode_url($uo) . $uq if $name;
+
+    if ($uq eq "?delete")
+    {
+	$verb = POST;
+    }
 
     if ($v >= 2)
     {
@@ -2129,7 +2223,7 @@ sub s3
     my($sig, $awskey) = sign($data);
 
     my $url = "$scheme://$vhost/$vname@{[$vname =~ /\?/? '&': '?']}AWSAccessKeyId=@{[encode_url($awskey)]}&Expires=$expires&Signature=@{[encode_url($sig)]}";
-    $url .= "&marker=$marker" if $marker;
+    $url .= "&marker=@{[encode_url($marker)]}" if $marker;
     $url .= "&prefix=@{[encode_url($prefix)]}" if $prefix;
     $url .= "&delimiter=$delimiter" if $delimiter;
 
@@ -2150,7 +2244,7 @@ sub s3
 
     # for a PUT, disable the "Expect: 100-Continue" header if the file is small
     my($accept);
-    $accept = "--header \"Expect: \"" if $verb eq PUT && (-s $file) < 10_000;
+    $accept = "--header \"Expect: \"" if ($verb eq PUT || $verb eq POST) && (-s $file) < 10_000;
 
     my $cmd = qq[curl $curl_options $insecureaws $accept $header --request $verb --dump-header - $content --location @{[cq($url)]}];
 
@@ -2161,7 +2255,7 @@ sub s3
     # remove "HTTP/1.1 100 Continue"
     $item =~ s/^HTTP\/\d+\.\d+\s+100\b.*?\r?\n\r?\n//s;
 
-    my($head, $body) = $item =~ /^(.*?\r?\n)\r?\n(.*)$/s;
+    my($head, $body) = $item =~ /^((?:HTTP\/.*?\r?\n\r?\n)+)(.*)$/s;
     print STDERR $head if $v;
     my($code) = $head =~ /^HTTP\/\d+\.\d+\s+(\d+\s+.*?)\r?\n/s;
 
@@ -2255,7 +2349,7 @@ sub ec2
     if ($service eq "iam")
     {
 	$endpoint = "iam.amazonaws.com";
-	$endpoint = "iam.$region.amazonaws.com" if $region;
+	# $endpoint = "iam.$region.amazonaws.com" if $region;
     }
 
     $queue ||= "/";
@@ -2342,7 +2436,7 @@ sub load_file_silent
     <$io>;
 }
 
-sub guess_is_unix 
+sub guess_is_unix
 {
     return 1 if $ENV{OS} =~ /windows/i && $ENV{OSTYPE} =~ /cygwin/i;
     return 1 if $ENV{OS} !~ /windows/i;
@@ -2379,7 +2473,7 @@ sub sign
 	}
 	else
 	{
-	    ($awskey, $secret, $signurl) = split(' ', load_file($secrets_file));
+	    ($awskey, $secret, $signurl) = split(/[\r\s:]+/s, load_file($secrets_file));
 	}
     }
 
@@ -2442,7 +2536,6 @@ sub parse_block_device_mapping
     [@result];
 }
 
-# the form used for autoscaling
 sub parse_block_device_mappings
 {
     my($dev, $vol, $size, $delete) = $_[0] =~ /^(.*?)(?:=(.*?)(?::(.*?)(?::(.*?))?)?)?$/;
@@ -2465,6 +2558,16 @@ sub parse_block_device_mappings
 	push @result, "BlockDeviceMappings.member.N.Ebs.DeleteOnTermination" => $delete if $delete;
     }
     [@result];
+}
+
+sub parse_block_device_mapping_with_launch_specification
+{
+    my $result = &parse_block_device_mapping;
+    for (my $i = 0; $i < @$result; $i += 2)
+    {
+	$result->[$i] = "LaunchSpecification.$result->[$i]";
+    }
+    $result;
 }
 
 sub parse_addpolicy_effect
@@ -2625,8 +2728,8 @@ sub sha1_sha1
     #constants [4.2.1]
     my @K = (0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6);
 
-    # PREPROCESSING 
- 
+    # PREPROCESSING
+
     $msg .= pack(C, 0x80); # add trailing '1' bit to string [5.1.1]
 
     # convert string msg into 512-bit/16-integer blocks arrays of ints [5.2.1]
