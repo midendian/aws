@@ -397,6 +397,7 @@ $as_version  = "2011-01-01";
 							 ]],
 	["as", "create-launch-config create-launch-configuration clc", CreateLaunchConfiguration, [
 							 ["block-device-mapping b", undef, undef, \&parse_block_device_mappings],
+							 #["block-device-mapping b", undef, undef, \&parse_block_device_mapping],
 							 ["device-name" => "BlockDeviceMappings.memberN.DeviceName"],
 							 ["no-device" => "BlockDeviceMappings.memberN.Ebs.NoDevice"],
 							 ["virtual-name" => "BlockDeviceMappings.memberN.VirtualName"],
@@ -733,6 +734,11 @@ $as_version  = "2011-01-01";
 				   [c => ConsistentRead],
 				   [next => NextToken],
 				   ]],
+
+	["dynamo", "list-tables lt", ListTables, [
+						   [max => Limit],
+						   [next => ExclusiveStartTableName],
+						   ]],
 	);
 
 
@@ -758,8 +764,8 @@ unshift @ARGV, $1 if $0 =~ /^(?:.*[\\\/])?(?:(?:ec2|s3|sqs|sdb)-?)?(.+?)(?:\..+)
 
     my(%meta);
     @meta{qw(1 cmd0 curl_options cut d delimiter dns_alias dump_xml exec expire_time fail h help http
-	     insecure insecure_signing insecure_aws insecureaws install l limit_rate link
-	     max_time marker md5 no_vhost prefix private progress public queue r region request requester retry ruby quiet
+	     insecure insecure_signing insecure_aws insecureaws install l limit_rate link max_keys
+	     max_time marker md5 no_continue no_vhost prefix private progress public queue r region request requester retry ruby quiet
 	     s3host sanity_check secrets_file set_acl sign silent simple t v verbose vv vvv wait xml yaml)} = undef;
 
     my @awsrc = "";
@@ -1328,6 +1334,7 @@ if (!$cmd_data)
 	    ($marker) = $r =~ /.*<Key>(.*?)<\/Key>/;
 	    last if $r !~ /<IsTruncated>true<\/IsTruncated>/ || $marker le $last_marker;
 	    $last_marker = $marker;
+        last if $no_continue;
 	}
     }
     else
@@ -2230,6 +2237,7 @@ sub s3
     $url .= "&marker=@{[encode_url($marker)]}" if $marker;
     $url .= "&prefix=@{[encode_url($prefix)]}" if $prefix;
     $url .= "&delimiter=$delimiter" if $delimiter;
+    $url .= "&max-keys=$max_keys" if $max_keys;
 
     return $url if $request;
 
